@@ -1,0 +1,56 @@
+{
+  "name": "Smart-Space UEH — Thư viện Thông minh Tầng 6",
+  "short_name": "Smart-Space UEH",
+  "description": "Ứng dụng đặt chỗ, quét QR Check-in/Check-out và bản sao số 3D Thư viện Thông minh UEH Cơ sở B (Tầng 6 - B1.603).",
+  "start_url": "./mobile.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#004850",
+  "theme_color": "#005F69",
+  "lang": "vi",
+  "categories": ["education", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Sơ đồ & Đặt chỗ 2D",
+      "short_name": "Đặt chỗ",
+      "description": "Mở nhanh sơ đồ chỗ ngồi 2D Thư viện UEH Tầng 6",
+      "url": "./mobile.html?tab=map",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Quét mã QR Check-in",
+      "short_name": "Quét QR",
+      "description": "Mở máy quét QR tại bàn học để Check-in ngay",
+      "url": "./mobile.html?tab=qr",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Không gian 3D Toàn cảnh",
+      "short_name": "Mô phỏng 3D",
+      "description": "Xem mô hình 3D thư viện thời gian thực",
+      "url": "./mobile.html?tab=3d",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
