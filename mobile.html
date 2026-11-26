@@ -2594,7 +2594,7 @@
 
         // --- STRICT 1-SEAT-PER-ACCOUNT ENFORCEMENT & LOCALSTORAGE SYNC ---
         const USER_SEAT_STORAGE_KEY = 'ueh_smartspace_account_seats_v3';
-        const SESSION_STORAGE_KEY = 'ueh_smartspace_active_session_v3';
+        const SESSION_STORAGE_KEY = 'ueh_smartspace_tab_session_v4';
 
         function getAccountHeldSeat(accountId = (State.currentUser && State.currentUser.id)) {
             if (!accountId) return null;
@@ -3398,13 +3398,12 @@
                         adminTab: 'stats'
                     });
                 sessionStorage.setItem(SESSION_STORAGE_KEY, payload);
-                localStorage.setItem(SESSION_STORAGE_KEY, payload);
             } catch (e) {}
         }
 
         function readSavedSessionFromStorage() {
             try {
-                const s = sessionStorage.getItem(SESSION_STORAGE_KEY) || localStorage.getItem(SESSION_STORAGE_KEY);
+                const s = sessionStorage.getItem(SESSION_STORAGE_KEY);
                 if (s) return JSON.parse(s);
             } catch (e) {}
             return null;
@@ -3580,9 +3579,40 @@
 
         function restoreSessionFromStorage() {
             loadAccountsFromStorage();
-            openLoginPortal();
-            return false;
+            const saved = readSavedSessionFromStorage();
+            if (!saved || saved.loggedOut === true || !saved.username) {
+                openLoginPortal();
+                return false;
+            }
+            const targetUser = String(saved.username);
+            const acc = ACCOUNTS.find(a => a.username.toLowerCase() === targetUser.toLowerCase() && a.status !== 'locked');
+            if (!acc) {
+                openLoginPortal();
+                return false;
+            }
+            const portal = document.getElementById('view-login');
+            if (portal) {
+                portal.style.opacity = '0';
+                portal.style.pointerEvents = 'none';
+                portal.style.display = 'none';
+            }
+            applyAuthenticatedAccount(acc);
+            return true;
         }
+
+        (function hideLoginFlashIfAuthenticated() {
+            try {
+                const parsed = readSavedSessionFromStorage();
+                if (parsed && parsed.loggedOut === false && parsed.username) {
+                    const portal = document.getElementById('view-login');
+                    if (portal) {
+                        portal.style.opacity = '0';
+                        portal.style.pointerEvents = 'none';
+                        portal.style.display = 'none';
+                    }
+                }
+            } catch (e) {}
+        })();
 
         function toggleDesktopFrameMode() {
             const isFramed = document.body.classList.contains('framed-mode');

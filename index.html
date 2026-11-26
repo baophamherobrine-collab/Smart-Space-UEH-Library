@@ -4597,25 +4597,20 @@
         }
 
         // --- 8. AUTHENTICATION, PERSISTENT SESSION & UEH PORTAL CONTROLLER ---
-        const SESSION_STORAGE_KEY = 'ueh_smartspace_active_session_v3';
+        const SESSION_STORAGE_KEY = 'ueh_smartspace_tab_session_v4';
 
         function saveActiveSessionToStorage(isLoggedOut = false) {
             try {
-                const payload = isLoggedOut
-                    ? JSON.stringify({ loggedOut: true })
-                    : (State.currentUser && State.currentUser.id
-                        ? JSON.stringify({
-                            loggedOut: false,
-                            username: State.currentUser.id,
-                            view: State.view || (State.currentUser.role === 'admin' ? 'split' : 'mobile'),
-                            adminTab: State.adminTab || 'stats'
-                        })
-                        : null);
-                if (payload) {
-                    // Save in sessionStorage (so each browser tab keeps its own independent login role on F5 reload)
-                    // and also in localStorage (as default session when opening a new tab)
-                    try { sessionStorage.setItem(SESSION_STORAGE_KEY, payload); } catch (e) {}
-                    try { localStorage.setItem(SESSION_STORAGE_KEY, payload); } catch (e) {}
+                if (isLoggedOut) {
+                    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ loggedOut: true }));
+                } else if (State.currentUser && State.currentUser.id) {
+                    const payload = JSON.stringify({
+                        loggedOut: false,
+                        username: State.currentUser.id,
+                        view: State.view || (State.currentUser.role === 'admin' ? 'split' : 'mobile'),
+                        adminTab: State.adminTab || 'stats'
+                    });
+                    sessionStorage.setItem(SESSION_STORAGE_KEY, payload);
                 }
             } catch (e) {}
         }
@@ -4625,19 +4620,69 @@
                 const tabRaw = sessionStorage.getItem(SESSION_STORAGE_KEY);
                 if (tabRaw) return JSON.parse(tabRaw);
             } catch (e) {}
-            try {
-                const globalRaw = localStorage.getItem(SESSION_STORAGE_KEY);
-                if (globalRaw) return JSON.parse(globalRaw);
-            } catch (e) {}
             return null;
         }
 
-        // Always show the Login Portal when accessing the link (do not auto-login into an account)
+        // Show Login Portal on first visit to link; keep logged-in session across F5 reloads in the same tab
         function restoreSessionFromStorage() {
             loadAccountsFromStorage();
-            openLoginPortal();
-            return false;
+            const saved = readSavedSessionFromStorage();
+
+            // If first time opening the link (!saved) or user explicitly logged out, show Login Portal
+            if (!saved || saved.loggedOut === true || !saved.username) {
+                openLoginPortal();
+                return false;
+            }
+
+            const targetUsername = String(saved.username);
+            const acc = ACCOUNTS.find(a => a.username.toLowerCase() === targetUsername.toLowerCase() && a.status !== 'locked');
+            if (!acc) {
+                openLoginPortal();
+                return false;
+            }
+
+            State.currentUser = {
+                id: acc.username,
+                name: acc.name,
+                role: acc.role,
+                email: acc.email || `${acc.username}@st.ueh.edu.vn`,
+                faculty: acc.faculty || 'Đại học Kinh tế TP. Hồ Chí Minh (UEH)'
+            };
+
+            const portal = document.getElementById('view-login');
+            if (portal) {
+                portal.style.opacity = '0';
+                portal.style.pointerEvents = 'none';
+                portal.style.display = 'none';
+            }
+
+            applyUserSession();
+            const restoredView = (acc.role === 'admin')
+                ? (saved.view ? saved.view : 'split')
+                : 'mobile';
+            switchView(restoredView);
+            if (acc.role === 'admin' && saved.adminTab) {
+                switchAdminTab(saved.adminTab);
+            }
+            syncCurrentUserSeatBanners();
+            saveActiveSessionToStorage(false);
+            return true;
         }
+
+        // Hide #view-login immediately on F5 reload ONLY if this tab already has an active authenticated session
+        (function hideLoginFlashIfAuthenticated() {
+            try {
+                const parsed = readSavedSessionFromStorage();
+                if (parsed && parsed.loggedOut === false && parsed.username) {
+                    const portal = document.getElementById('view-login');
+                    if (portal) {
+                        portal.style.opacity = '0';
+                        portal.style.pointerEvents = 'none';
+                        portal.style.display = 'none';
+                    }
+                }
+            } catch (e) {}
+        })();
 
         // Multi-Tab & Real-Time Account Synchronization Listeners
         function handleExternalAccountsSync() {
