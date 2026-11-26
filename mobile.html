@@ -861,6 +861,31 @@
                 </div>
             </div>
 
+            <!-- CANCELLATION WARNING & 2-DAY ACCOUNT LOCK PENALTY BOTTOM SHEET -->
+            <div id="modal-cancel-penalty" class="modal-overlay fixed md:absolute inset-0 bg-slate-900/70 backdrop-blur-sm z-[130] flex items-end justify-center">
+                <div id="cancel-penalty-card" class="modal-sheet bg-white rounded-t-3xl p-5 w-full shadow-2xl border-t-4 border-[#F26F21]">
+                    <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-3"></div>
+                    <div class="flex items-center gap-3 mb-3">
+                        <div id="cancel-penalty-icon-box" class="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md flex-shrink-0 font-black text-lg">
+                            ⚠️
+                        </div>
+                        <div>
+                            <span id="cancel-penalty-badge" class="bg-amber-100 text-amber-800 border border-amber-300 text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase">Cảnh báo hệ thống (2/3 lần hủy)</span>
+                            <h3 id="cancel-penalty-title" class="text-base font-extrabold text-slate-900 mt-0.5">Cảnh báo Hủy giữ chỗ liên tục!</h3>
+                        </div>
+                    </div>
+
+                    <div id="cancel-penalty-body" class="bg-amber-50/90 rounded-2xl p-3.5 border border-amber-200 text-xs text-slate-700 space-y-2 mb-4 leading-relaxed">
+                        <!-- Populated dynamically by JS -->
+                    </div>
+
+                    <button id="cancel-penalty-btn" onclick="acknowledgeCancelPenaltyModal()" class="w-full bg-[#005F69] active:bg-[#004850] text-white font-extrabold py-3 rounded-2xl text-xs shadow-md">
+                        Tôi đã hiểu và cam kết tuân thủ
+                    </button>
+                    <div class="safe-bottom-spacer"></div>
+                </div>
+            </div>
+
             <!-- TOAST NOTIFICATION -->
             <div id="toast" class="fixed md:absolute top-16 left-1/2 -translate-x-1/2 bg-[#005F69] text-white border-2 border-[#F26F21] text-xs font-bold px-4 py-2.5 rounded-2xl opacity-0 pointer-events-none transition-all duration-300 z-[150] shadow-2xl flex items-center gap-2 w-[90%] max-w-[360px]">
                 <span class="w-2 h-2 rounded-full bg-[#F26F21] flex-shrink-0"></span>
@@ -1007,12 +1032,33 @@
             }
         } catch (e) {}
 
+        const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+
+        function formatLockReleaseDateTime(ts) {
+            if (!ts) return '';
+            const d = new Date(Number(ts));
+            if (isNaN(d.getTime())) return '';
+            return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' ngày ' + d.toLocaleDateString('vi-VN');
+        }
+
         function sanitizeAccountItem(item) {
             if (!item || typeof item !== 'object') return null;
             const username = String(item.username || item.id || '').trim();
             if (!username) return null;
             const isRoot = username.toLowerCase() === 'admin';
             const role = isRoot ? 'admin' : (item.role === 'admin' ? 'admin' : 'student');
+            let status = isRoot ? 'active' : (item.status === 'locked' ? 'locked' : 'active');
+            let lockedUntil = item.lockedUntil ? Number(item.lockedUntil) : null;
+            let lockReason = item.lockReason || null;
+            let cancelStreak = Number(item.cancelStreak) || 0;
+
+            if (!isRoot && status === 'locked' && lockedUntil && Date.now() >= lockedUntil) {
+                status = 'active';
+                lockedUntil = null;
+                lockReason = null;
+                cancelStreak = 0;
+            }
+
             return {
                 username: isRoot ? 'admin' : username,
                 password: String(item.password !== undefined && item.password !== null ? item.password : '123456').trim() || '123456',
@@ -1022,7 +1068,10 @@
                 faculty: isRoot ? '—' : (String(item.faculty || 'Đại học UEH').trim() || 'Đại học UEH'),
                 createdAt: item.createdAt || new Date().toLocaleDateString('vi-VN'),
                 source: isRoot ? 'Mặc định hệ thống' : (item.source || 'Sinh viên tự đăng ký'),
-                status: isRoot ? 'active' : (item.status === 'locked' ? 'locked' : 'active')
+                status: status,
+                cancelStreak: isRoot ? 0 : cancelStreak,
+                lockedUntil: isRoot ? null : lockedUntil,
+                lockReason: isRoot ? null : lockReason
             };
         }
 
@@ -2752,10 +2801,12 @@
                         seat.ownerId = null;
                         updateSeatVisual(seat);
                         saveUserSeatAssignments();
+                        State.myReservation = null;
                         if (banner) banner.classList.add('hidden');
                         if (navDot) navDot.classList.add('hidden');
+                        populateQrSeatSelector();
                         updateMySeatTabUI();
-                        showToast(`Hết 15 phút giữ chỗ! Ghế ${seat.id} đã tự động mở trống.`);
+                        handleConsecutiveCancelPolicy(seat.id);
                     }
                 }
             }, 1000);
@@ -2767,6 +2818,9 @@
             const myHeldSeat = getAccountHeldSeat(State.currentUser.id);
             const seat = (State.myReservation && SEATS.find(s => s.id === State.myReservation.seatId)) ||
                          (myHeldSeat && myHeldSeat.status === 'reserved' ? myHeldSeat : null);
+            if (!seat && !State.myReservation) return;
+
+            const canceledSeatId = seat ? seat.id : (State.myReservation ? State.myReservation.seatId : '');
             if (seat && seat.status === 'reserved') {
                 seat.status = 'vacant';
                 seat.user = null;
@@ -2784,7 +2838,122 @@
             if (navDot) navDot.classList.add('hidden');
             populateQrSeatSelector();
             updateMySeatTabUI();
-            showToast('Đã hủy giữ chỗ. Bạn có thể chọn ghế khác.');
+
+            handleConsecutiveCancelPolicy(canceledSeatId);
+        }
+
+        function resetCurrentStudentCancelStreak() {
+            if (!State.currentUser || !State.currentUser.id) return;
+            loadAccountsFromStorage();
+            const acc = ACCOUNTS.find(a => a.username.toLowerCase() === String(State.currentUser.id).toLowerCase());
+            if (acc && acc.cancelStreak > 0) {
+                acc.cancelStreak = 0;
+                saveAccountsToStorage();
+            }
+        }
+
+        let pendingLockoutLogout = false;
+        function acknowledgeCancelPenaltyModal() {
+            closeModal('modal-cancel-penalty');
+            if (pendingLockoutLogout) {
+                pendingLockoutLogout = false;
+                logoutCurrentUser();
+            }
+        }
+
+        function showCancelPenaltyPopup(type, streakCount, seatId, lockedUntilTs) {
+            const card = document.getElementById('cancel-penalty-card');
+            const iconBox = document.getElementById('cancel-penalty-icon-box');
+            const badge = document.getElementById('cancel-penalty-badge');
+            const title = document.getElementById('cancel-penalty-title');
+            const body = document.getElementById('cancel-penalty-body');
+            const btn = document.getElementById('cancel-penalty-btn');
+            if (!card || !body) return;
+
+            if (type === 'warning') {
+                pendingLockoutLogout = false;
+                card.className = 'modal-sheet bg-white rounded-t-3xl p-5 w-full shadow-2xl border-t-4 border-[#F26F21]';
+                if (iconBox) {
+                    iconBox.className = 'w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md flex-shrink-0 font-black text-lg';
+                    iconBox.innerText = '⚠️';
+                }
+                if (badge) {
+                    badge.className = 'bg-amber-100 text-amber-800 border border-amber-300 text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase';
+                    badge.innerText = `Cảnh báo hệ thống (${streakCount}/3 lần hủy liên tiếp)`;
+                }
+                if (title) title.innerText = 'Cảnh báo Hủy giữ chỗ liên tục!';
+                body.className = 'bg-amber-50/90 rounded-2xl p-3.5 border border-amber-200 text-xs text-slate-700 space-y-2 mb-4 leading-relaxed';
+                body.innerHTML = `
+                    <p class="font-bold text-amber-900">Sinh viên <span class="text-[#005F69]">${State.currentUser.name} (${State.currentUser.id})</span> vừa hủy giữ chỗ liên tục <span class="underline">2 lần</span> (Ghế gần nhất: ${seatId || '—'}).</p>
+                    <p class="text-red-600 font-extrabold">🚨 Lưu ý quan trọng: Nếu bạn tiếp tục hủy giữ chỗ ở lần thứ 3 liên tiếp, hệ thống sẽ tự động KHÓA TÀI KHOẢN trong vòng 2 NGÀY (48 giờ)!</p>
+                    <p class="text-[11px] text-slate-500">Số lần hủy liên tiếp sẽ đặt lại về 0 khi bạn Quét QR Check-in thành công.</p>
+                `;
+                if (btn) {
+                    btn.className = 'w-full bg-[#005F69] active:bg-[#004850] text-white font-extrabold py-3 rounded-2xl text-xs shadow-md';
+                    btn.innerText = 'Tôi đã hiểu và cam kết tuân thủ';
+                }
+            } else if (type === 'locked') {
+                pendingLockoutLogout = true;
+                const unlockTimeStr = formatLockReleaseDateTime(lockedUntilTs);
+                card.className = 'modal-sheet bg-white rounded-t-3xl p-5 w-full shadow-2xl border-t-4 border-red-600';
+                if (iconBox) {
+                    iconBox.className = 'w-11 h-11 rounded-2xl bg-red-600 text-white flex items-center justify-center shadow-md flex-shrink-0 font-black text-lg';
+                    iconBox.innerText = '🔒';
+                }
+                if (badge) {
+                    badge.className = 'bg-red-100 text-red-700 border border-red-300 text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase';
+                    badge.innerText = 'Vi phạm quy định (Hủy 3/3 lần liên tiếp)';
+                }
+                if (title) title.innerText = 'Tài khoản bị khóa trong 2 ngày!';
+                body.className = 'bg-red-50 rounded-2xl p-3.5 border border-red-200 text-xs text-slate-700 space-y-2 mb-4 leading-relaxed';
+                body.innerHTML = `
+                    <p class="font-bold text-red-900">Tài khoản <span class="font-mono">${State.currentUser.id}</span> (${State.currentUser.name}) đã hủy giữ chỗ liên tục <span class="underline font-extrabold">3 lần</span> sau khi nhận cảnh báo.</p>
+                    <div class="bg-white p-2.5 rounded-xl border border-red-200 space-y-1">
+                        <p class="font-extrabold text-red-600">⛔ Khóa tài khoản 02 ngày (48 giờ)</p>
+                        <p class="text-[11px] text-slate-600">Mở khóa tự động: <strong class="text-slate-900">${unlockTimeStr}</strong></p>
+                    </div>
+                    <p class="text-[11px] text-slate-500">Liên hệ Quầy Thủ thư Ask-Us-Now (Tầng 6) nếu cần hỗ trợ.</p>
+                `;
+                if (btn) {
+                    btn.className = 'w-full bg-red-600 active:bg-red-700 text-white font-extrabold py-3 rounded-2xl text-xs shadow-md';
+                    btn.innerText = 'Xác nhận & Đăng xuất tài khoản';
+                }
+            }
+            openModal('modal-cancel-penalty');
+        }
+
+        function handleConsecutiveCancelPolicy(canceledSeatId) {
+            loadAccountsFromStorage();
+            const curId = State.currentUser && State.currentUser.id ? String(State.currentUser.id) : '';
+            const acc = ACCOUNTS.find(a => a.username.toLowerCase() === curId.toLowerCase());
+
+            if (!acc || acc.role === 'admin' || acc.username.toLowerCase() === 'admin') {
+                showToast('Đã hủy giữ chỗ. Bạn có thể chọn ghế khác.');
+                return;
+            }
+
+            acc.cancelStreak = (Number(acc.cancelStreak) || 0) + 1;
+            const streak = acc.cancelStreak;
+
+            if (streak === 1) {
+                saveAccountsToStorage();
+                showToast('Đã hủy giữ chỗ (Lần 1/3). Lưu ý: Hủy liên tục 2 lần sẽ bị cảnh báo, 3 lần sẽ khóa tài khoản 2 ngày.');
+            } else if (streak === 2) {
+                saveAccountsToStorage();
+                playAudioTone('alert');
+                showToast('⚠️ CẢNH BÁO: Bạn đã hủy giữ chỗ liên tục 2 lần! Nếu hủy lần thứ 3 sẽ bị khóa tài khoản 2 ngày.');
+                showCancelPenaltyPopup('warning', 2, canceledSeatId, null);
+            } else if (streak >= 3) {
+                const lockUntil = Date.now() + TWO_DAYS_MS;
+                acc.status = 'locked';
+                acc.lockedUntil = lockUntil;
+                acc.lockReason = 'Khóa tự động 2 ngày (Hủy giữ chỗ 3 lần liên tiếp)';
+                saveAccountsToStorage();
+
+                playAudioTone('alert');
+                showToast('🔒 Tài khoản của bạn đã bị KHÓA 2 NGÀY do hủy giữ chỗ liên tục 3 lần!');
+                showCancelPenaltyPopup('locked', 3, canceledSeatId, lockUntil);
+            }
         }
 
         function simulateSuccessfulQRScan() {
@@ -2852,6 +3021,7 @@
                 status: 'Đang ngồi'
             });
 
+            resetCurrentStudentCancelStreak();
             startActiveSeatSession(targetSeat, newSessionId, checkInTimeStr);
             populateQrSeatSelector();
             updateMySeatTabUI();
@@ -3260,7 +3430,20 @@
             const password = String(passwordRaw || '').trim();
             const acc = ACCOUNTS.find(a => String(a.username || '').trim().toLowerCase() === username.toLowerCase());
             if (!acc) return { ok: false, error: `MSSV / Tài khoản "${username}" chưa đăng ký! Hãy bấm "Đăng ký ngay".` };
-            if (acc.status === 'locked') return { ok: false, error: `Tài khoản "${acc.username}" đang bị khóa!` };
+            if (acc.status === 'locked') {
+                if (acc.lockedUntil && Date.now() >= Number(acc.lockedUntil)) {
+                    acc.status = 'active';
+                    acc.lockedUntil = null;
+                    acc.lockReason = null;
+                    acc.cancelStreak = 0;
+                    saveAccountsToStorage();
+                } else {
+                    const unlockMsg = acc.lockedUntil
+                        ? ` do hủy giữ chỗ liên tục 3 lần! Mở khóa tự động lúc: ${formatLockReleaseDateTime(acc.lockedUntil)}.`
+                        : ' bởi Quản trị viên!';
+                    return { ok: false, error: `🔒 Tài khoản "${acc.username}" đang bị tạm khóa trong 2 ngày${unlockMsg}` };
+                }
+            }
             if (String(acc.password || '').trim() !== password) return { ok: false, error: 'Mật khẩu không chính xác!' };
             return { ok: true, account: acc };
         }
