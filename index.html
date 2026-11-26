@@ -4632,68 +4632,12 @@
             return null;
         }
 
-        // Restore persisted session on page load/reload so refreshing (F5) never kicks user out to login screen
+        // Always show the Login Portal when accessing the link (do not auto-login into an account)
         function restoreSessionFromStorage() {
             loadAccountsFromStorage();
-            const saved = readSavedSessionFromStorage();
-
-            // Only show login portal if the user explicitly clicked "Đăng xuất" (loggedOut === true)
-            if (saved && saved.loggedOut === true) {
-                openLoginPortal();
-                return false;
-            }
-
-            // Otherwise find the saved account (or default student account 31241021186 on first reload)
-            const targetUsername = (saved && saved.username) ? String(saved.username) : (State.currentUser ? State.currentUser.id : '31241021186');
-            let acc = ACCOUNTS.find(a => a.username.toLowerCase() === targetUsername.toLowerCase() && a.status !== 'locked');
-            if (!acc) {
-                acc = ACCOUNTS.find(a => a.role === 'student' && a.status !== 'locked') || ACCOUNTS[0];
-            }
-            if (!acc) return false;
-
-            State.currentUser = {
-                id: acc.username,
-                name: acc.name,
-                role: acc.role,
-                email: acc.email || `${acc.username}@st.ueh.edu.vn`,
-                faculty: acc.faculty || 'Đại học Kinh tế TP. Hồ Chí Minh (UEH)'
-            };
-
-            // Hide Login Portal immediately with zero transition delay on page reload
-            const portal = document.getElementById('view-login');
-            if (portal) {
-                portal.style.opacity = '0';
-                portal.style.pointerEvents = 'none';
-                portal.style.display = 'none';
-            }
-
-            applyUserSession();
-            const restoredView = (acc.role === 'admin')
-                ? ((saved && saved.view) ? saved.view : 'split')
-                : 'mobile';
-            switchView(restoredView);
-            if (acc.role === 'admin' && saved && saved.adminTab) {
-                switchAdminTab(saved.adminTab);
-            }
-            syncCurrentUserSeatBanners();
-            saveActiveSessionToStorage(false);
-            return true;
+            openLoginPortal();
+            return false;
         }
-
-        // Hide #view-login immediately during script parse if session is active (prevents login screen flash on F5)
-        (function hideLoginFlashIfAuthenticated() {
-            try {
-                const parsed = readSavedSessionFromStorage();
-                if (!parsed || parsed.loggedOut !== true) {
-                    const portal = document.getElementById('view-login');
-                    if (portal) {
-                        portal.style.opacity = '0';
-                        portal.style.pointerEvents = 'none';
-                        portal.style.display = 'none';
-                    }
-                }
-            } catch (e) {}
-        })();
 
         // Multi-Tab & Real-Time Account Synchronization Listeners
         function handleExternalAccountsSync() {
